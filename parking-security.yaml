@@ -1,0 +1,178 @@
+esphome:
+  name: parking-security
+  friendly_name: Parking Security
+  on_boot:
+    priority: -100  # Runs after Wi-Fi and other systems are ready
+    then:
+      - script.execute: boot_delay_checker
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "/XLfZCZBCNjpItxXhk1tBD5l2M2Ma65qv28GjYhFd70="
+
+ota:
+  - platform: esphome
+    password: "b8c7cdfc70ad9dc34cb8f8ae58c3b4d4"
+
+wifi:
+  ssid: "Arun"
+  password: "63666366"
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Parking-Security"
+    password: "KW91Juy4e29O"
+
+captive_portal:
+    
+
+uart:
+  id: ld2420_radar
+  tx_pin: GPIO4
+  rx_pin: GPIO3
+  baud_rate: 115200
+  parity: NONE
+  stop_bits: 1
+  
+
+ld2420:
+  
+
+text_sensor:
+  - platform: ld2420
+    fw_version:
+      name: LD2420 Firmware
+
+sensor:
+  - platform: ld2420
+    moving_distance:
+      name : Moving Distance
+  - platform: template
+    name: "Last Presence Time"
+    lambda: |-
+      return (float) id(last_presence_time);
+    update_interval: 1s
+
+binary_sensor:
+  - platform: ld2420
+    has_target:
+      name: Presence
+      id: presence
+
+  # Handle presence change
+  - platform: template
+    name: "Presence Handler"
+    lambda: |-
+      return id(presence).state;
+    on_press:
+      then:
+        - lambda: |-
+            if(id(boot_completed)){
+              id(last_presence_time) = millis();
+              id(alarm_state) = true;
+              id(alarm_switch).turn_on();
+            }
+    on_release:
+      then:
+        - lambda: |-
+            id(alarm_state) = false;
+            id(alarm_switch).turn_off();
+            id(last_presence_time) = 0;
+    
+
+select:
+  - platform: ld2420
+    operating_mode:
+      name: Operating Mode
+
+number:
+  - platform: ld2420
+    presence_timeout:
+      name: Detection Presence Timeout
+    min_gate_distance:
+      name: Detection Gate Minimum
+    max_gate_distance:
+      name: Detection Gate Maximum
+    # See "Number" section below for detail
+    gate_select:
+      name: Select Gate to Set
+    still_threshold:
+      name: Set Still Threshold Value
+    move_threshold:
+      name: Set Move Threshold Value
+        
+button:
+  - platform: ld2420
+    apply_config:
+      name: Apply Config
+    factory_reset:
+      name: Factory Reset
+    restart_module:
+      name: Restart Module
+    revert_config:
+      name: Undo Edits
+
+# Global variable to track alarm state
+globals:
+  - id: alarm_state
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: boot_completed
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: last_presence_time
+    type: unsigned long
+    restore_value: no
+    initial_value: '0'
+
+# Output GPIO for alarm
+output:
+  - platform: gpio
+    id: alarm_output
+    pin: GPIO10  # use your actual alarm pin
+
+switch:
+  - platform: output
+    name: "Alarm Switch"
+    id: alarm_switch
+    output: alarm_output
+
+script:
+  - id: boot_delay_checker
+    mode: queued
+    then:
+      - delay: 60s
+      - lambda: |-
+          if (id(presence).state) {
+            id(alarm_state) = true;
+            id(last_presence_time) = millis();
+            id(alarm_switch).turn_on();
+          } else {
+            id(alarm_state) = false;
+            id(alarm_switch).turn_off();
+          }
+          id(boot_completed) = true;
+
+# interval:
+#   - interval: 5s
+#     then:
+#       - lambda: |-
+#           if (id(alarm_state)) {
+#             if (!id(presence).state && (id(last_presence_time) != 0) && (millis() - id(last_presence_time) > 30000)) {
+#               id(alarm_state) = false;
+#               id(alarm_switch).turn_off();
+#             }
+#           }
